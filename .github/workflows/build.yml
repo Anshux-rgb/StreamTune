@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -28,14 +28,55 @@ jobs:
             echo "Extracting $ZIP_FILE..."
             unzip -q -o "$ZIP_FILE"
           fi
-          
-          # अगर अनज़िप होकर किसी सब-फ़ोल्डर में गया हो, तो फ़ाइलों को बाहर लाएँ
-          if [ ! -f settings.gradle.kts ] && [ ! -f settings.gradle ]; then
-            SUBDIR=$(find . -maxdepth 2 -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
-            if [ -n "$SUBDIR" ] && [ "$SUBDIR" != "." ]; then
-              echo "Moving files from $SUBDIR to root..."
-              cp -r "$SUBDIR"/* .
+
+          # अगर ज़िप किसी सब-फ़ोल्डर में अनपैक हुआ हो तो फ़ाइलें बाहर लाएँ
+          if [ ! -d "app" ]; then
+            APP_DIR=$(find . -maxdepth 3 -type d -name "app" | head -n 1)
+            if [ -n "$APP_DIR" ]; then
+              PARENT=$(dirname "$APP_DIR")
+              cp -r "$PARENT"/* .
             fi
+          fi
+
+          # गलत नाम वाले फ़ोल्डर की सफ़ाई
+          rm -rf app/src/main/java/com/streamtune/music/\{* 2>/dev/null || true
+
+      - name: Create Missing Root Gradle Configs
+        run: |
+          # 1. Create settings.gradle.kts if missing
+          if [ ! -f settings.gradle.kts ] && [ ! -f settings.gradle ]; then
+            cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven { url = java.net.URI("https://jitpack.io") }
+              }
+          }
+          rootProject.name = "StreamTune"
+          include(":app")
+          EOF
+          fi
+
+          # 2. Create root build.gradle.kts if missing
+          if [ ! -f build.gradle.kts ] && [ ! -f build.gradle ]; then
+            cat << 'EOF' > build.gradle.kts
+          plugins {
+              alias(libs.plugins.android.application) apply false
+              alias(libs.plugins.kotlin.android) apply false
+              alias(libs.plugins.kotlin.compose) apply false
+              alias(libs.plugins.hilt.android) apply false
+              alias(libs.plugins.ksp) apply false
+          }
+          EOF
           fi
 
       - name: Set up Java 17
@@ -44,35 +85,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configure Android SDK Environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          yes | sdkmanager --licenses || true
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Make Gradle Wrapper Executable
-        run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-          fi
-
       - name: Build Debug APK
-        run: |
-          if [ -f gradlew ]; then
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
-          fi
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StreamTune-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
+          
+    
           
