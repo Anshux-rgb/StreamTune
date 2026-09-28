@@ -1,0 +1,79 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch: # lets you tap "Run workflow" manually from the GitHub app/website
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Phone-friendly shortcut: if you uploaded the project as a single .zip
+      # (instead of the individual files), unpack it here so Gradle sees a
+      # normal project layout. Does nothing when settings.gradle.kts is already
+      # at the repo root.
+      - name: Unzip project if it was uploaded as a zip
+        run: |
+          if [ ! -f settings.gradle.kts ]; then
+            zipfile=$(ls -1 *.zip 2>/dev/null | head -n 1 || true)
+            if [ -n "$zipfile" ]; then
+              echo "Unzipping $zipfile"
+              unzip -q -o "$zipfile"
+            else
+              echo "No settings.gradle.kts and no .zip found at repo root" >&2
+              exit 1
+            fi
+          fi
+          ls -la
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Installs/accepts licenses for the Android SDK so Gradle can download
+      # platform 35 + build-tools automatically.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # We don't ship a gradlew wrapper (no PC to generate one), so ask the
+      # setup action to provide a matching Gradle version instead.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamTune-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # If the build fails, keep the detailed reports so the error is easy to read.
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: app/build/reports
+          if-no-files-found: ignore
