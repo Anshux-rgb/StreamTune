@@ -29,7 +29,6 @@ jobs:
             unzip -q -o "$ZIP_FILE"
           fi
 
-          # अगर ज़िप किसी सब-फ़ोल्डर में अनपैक हुआ हो तो फ़ाइलें बाहर लाएँ
           if [ ! -d "app" ]; then
             APP_DIR=$(find . -maxdepth 3 -type d -name "app" | head -n 1)
             if [ -n "$APP_DIR" ]; then
@@ -38,14 +37,11 @@ jobs:
             fi
           fi
 
-          # गलत नाम वाले फ़ोल्डर की सफ़ाई
           rm -rf app/src/main/java/com/streamtune/music/\{* 2>/dev/null || true
 
-      - name: Create Missing Root Gradle Configs
+      - name: Create Clean Root Gradle Configuration
         run: |
-          # 1. Create settings.gradle.kts if missing
-          if [ ! -f settings.gradle.kts ] && [ ! -f settings.gradle ]; then
-            cat << 'EOF' > settings.gradle.kts
+          cat << 'EOF' > settings.gradle.kts
           pluginManagement {
               repositories {
                   google()
@@ -54,7 +50,7 @@ jobs:
               }
           }
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
               repositories {
                   google()
                   mavenCentral()
@@ -64,20 +60,28 @@ jobs:
           rootProject.name = "StreamTune"
           include(":app")
           EOF
-          fi
 
-          # 2. Create root build.gradle.kts if missing
-          if [ ! -f build.gradle.kts ] && [ ! -f build.gradle ]; then
-            cat << 'EOF' > build.gradle.kts
-          plugins {
-              alias(libs.plugins.android.application) apply false
-              alias(libs.plugins.kotlin.android) apply false
-              alias(libs.plugins.kotlin.compose) apply false
-              alias(libs.plugins.hilt.android) apply false
-              alias(libs.plugins.ksp) apply false
+          cat << 'EOF' > build.gradle.kts
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath("com.android.tools.build:gradle:8.5.2")
+                  classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.0")
+                  classpath("com.google.dagger:hilt-android-gradle-plugin:2.51.1")
+                  classpath("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:2.0.0-1.0.24")
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven { url = java.net.URI("https://jitpack.io") }
+              }
           }
           EOF
-          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -101,6 +105,4 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
-          
-    
           
